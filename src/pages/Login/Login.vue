@@ -13,10 +13,10 @@
           <div :class="{on:loginWay}">
             <section class="login_message">
               <input type="tel" maxlength="11" placeholder="手机号" v-model="phone">
-              <button :disabled="!isRightPhone || computeTime>0" class="get_verification" :class="{right_phone_number: isRightPhone}" @click="sendCode">{{computeTime>0 ? `已发送(${computeTime}s)` : '获取验证码'}}</button>
+              <button :disabled="!isRightPhone || computeTime>0" class="get_verification" :class="{right_phone_number: isRightPhone}" @click.prevent="sendCode">{{computeTime>0 ? `已发送(${computeTime}s)` : '获取验证码'}}</button>
             </section>
             <section class="login_verification">
-              <input type="tel" maxlength="8" placeholder="验证码">
+              <input type="tel" maxlength="8" placeholder="验证码" v-model="code">
             </section>
             <section class="login_hint">
               温馨提示：未注册硅谷外卖帐号的手机号，登录时将自动注册，且代表已同意
@@ -26,22 +26,22 @@
           <div :class="{on:!loginWay}">
             <section>
               <section class="login_message">
-                <input type="tel" maxlength="11" placeholder="手机/邮箱/用户名">
+                <input type="tel" maxlength="11" placeholder="手机/邮箱/用户名" v-model="name">
               </section>
               <section class="login_verification">
-                <input :type="isShowPwd? 'text':'password'" maxlength="8" placeholder="密码">
+                <input :type="isShowPwd? 'text':'password'" maxlength="8" placeholder="密码" v-model="pwd">
                 <div class="switch_button " @click="isShowPwd=!isShowPwd" :class="isShowPwd?'on':'off'">
                   <div class="switch_circle" :class="{right: isShowPwd}"></div>
                   <span class="switch_text">{{isShowPwd ? 'abc' : '...'}}</span>
                 </div>
               </section>
               <section class="login_message">
-                <input type="text" maxlength="11" placeholder="验证码">
-                <img class="get_verification" src="./images/captcha.svg" alt="captcha">
+                <input type="text" maxlength="11" placeholder="验证码" v-model="captcha">
+                <img class="get_verification" src="http://localhost:4000/captcha"  ref='captcha' @click="updateCaptcha">
               </section>
             </section>
           </div>
-          <button class="login_submit">登录</button>
+          <button class="login_submit" @click.prevent="login">登录</button>
         </form>
         <a href="javascript:;" class="about_us">关于我们</a>
       </div>
@@ -55,11 +55,18 @@
 </template>
 
 <script>
+
+  import {Toast, MessageBox} from 'mint-ui'
+  import {reqSendCode, reqPwdLogin, reqSmsLogin} from '../../api'
   export default {
     data(){
       return{
         loginWay:true,
         phone:'',
+        code:'',
+        name:'',
+        pwd:'',
+        captcha:'',
         computeTime:0,
         isShowPwd:false
       }
@@ -71,15 +78,68 @@
     },
 
     methods:{
-      sendCode(){
+      async sendCode(){
         this.computeTime=30
         const intervalId=setInterval(()=>{
           if(this.computeTime===0){
             clearInterval(intervalId)
+            this.computeTime = 0
+
             return
           }
           this.computeTime--
         },1000)
+
+        const result=await reqSendCode(this.phone)
+        if(result.code===0){
+          Toast('验证码已发送')
+        }else{
+          this.computeTime = 0
+          MessageBox.alert(result.msg).then(action=>{
+            console.log('点击确定')
+          });
+        }
+      },
+
+      updateCaptcha(){
+        this.$refs.captcha.src='http://localhost:4000/captcha?time='+Date.now()
+      },
+
+      async login(){
+        let result
+        if(this.loginWay){
+          const{phone,code}=this
+          if(!this.isRightPhone){
+            return MessageBox.alert('请输入正确的手机号')
+          }else if(!/^\d{6}$/.test(code)){
+            return MessageBox.alert('请输入正确的验证码')
+          }
+          result=await reqSmsLogin(phone,code)
+        }else{
+          const {name,pwd,captcha}=this
+          if(!name){
+            return MessageBox.alert('用户名必须指定')
+          }else if(!pwd){
+            return MessageBox.alert('密码必须指定')
+          }else if(!/^.{4}$/.test(captcha)){
+            return MessageBox.alert('请输入正确验证码')
+          }
+
+          result=await reqPwdLogin({name,pwd,captcha})
+        }
+
+        this.computeTime = 0
+
+        this.updateCaptcha()
+
+        if(result.code===0){
+          const user=result.data
+          this.$store.dispatch('saveUser',user)
+          this.$router.replace('/profile')
+        }else{
+          MessageBox.alert(result.msg)
+        }
+
       }
     }
   }
